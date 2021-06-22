@@ -3,4 +3,7 @@
 Makefile
 .qmake.stash 
 translations/*.qm
+.clangd
+/build/
+/compile_commands.json
 
