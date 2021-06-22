@@ -30,25 +30,25 @@ class SettingsDialog;
 }
 
 class SettingsDialog : public QDialog {
-	Q_OBJECT
+  Q_OBJECT
 
 public:
-	explicit SettingsDialog(QWidget *, QSettings *);
-	~SettingsDialog();
-	void set_current_tab(int);
-	void add_environment_variable(const QString &, const QString &);
+  explicit SettingsDialog(QWidget *, QSettings *);
+  ~SettingsDialog();
+  void set_current_tab(int);
+  void add_environment_variable(const QString &, const QString &);
 
 private:
-	Ui::SettingsDialog *ui;
-	QSettings *config;
-	QHash<QString, QString> language_code_to_name;
+  Ui::SettingsDialog *ui;
+  QSettings *config;
+  QHash<QString, QString> language_code_to_name;
 
 private slots:
-	void use_internal_ssh_library_checked(bool);
-	void add_environment_variable();
-	void remove_environment_variable();
-	void browse_ssh_program();
-	void save_settings();
+  void use_internal_ssh_library_checked(bool);
+  void add_environment_variable();
+  void remove_environment_variable();
+  void browse_ssh_program();
+  void save_settings();
 };
 
 #endif // SETTINGSDIALOG_H

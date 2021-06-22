@@ -22,40 +22,39 @@
 #include <QtWidgets/QDialog>
 #endif
 #include <QtCore/QSettings>
-//class QSettings;
+// class QSettings;
 
 namespace Ui {
 class ConnectionWindow;
 }
 
-class ConnectionWindow : public QDialog
-{
-Q_OBJECT
+class ConnectionWindow : public QDialog {
+  Q_OBJECT
 
 public:
-	explicit ConnectionWindow(QWidget *, QSettings *);
-	~ConnectionWindow();
+  explicit ConnectionWindow(QWidget *, QSettings *);
+  ~ConnectionWindow();
 
 private:
-	Ui::ConnectionWindow *ui;
-	QSettings *config;
+  Ui::ConnectionWindow *ui;
+  QSettings *config;
 #if 0
 	QStringList *host_list;
 	QList<QVariant> *port_list;
 	QStringList *identify_list;
 #else
-	QList<QVariant> server_list;
+  QList<QVariant> server_list;
 #endif
 
 protected:
-	void closeEvent(QCloseEvent *);
+  void closeEvent(QCloseEvent *);
 
 private slots:
-	void browse_identity_file();
-	void change_settings();
-	void start_main_window();
-	void remote_host_name_change_event(int);
-	void remote_host_name_change_event(QString);
+  void browse_identity_file();
+  void change_settings();
+  void start_main_window();
+  void remote_host_name_change_event(int);
+  void remote_host_name_change_event(QString);
 };
 
 #endif // CONNECTIONWINDOW_H

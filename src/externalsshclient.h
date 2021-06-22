@@ -16,70 +16,72 @@
 #define EXTERNALSSHCLIENT_H
 
 #include "sshclient.h"
-#include <QtCore/QSet>
 #include <QtCore/QProcess>
+#include <QtCore/QSet>
 
 class QTemporaryFile;
 
 class ExternalSSHClient : public SSHClient {
-	Q_OBJECT
+  Q_OBJECT
 public:
-	ExternalSSHClient(QObject * = NULL);
-	ExternalSSHClient(QObject *, const QString &);
-	~ExternalSSHClient();
-	void set_ssh_program_path(const QString &);
-	void set_extra_args(const QStringList &);
-	bool connect(const QString &, quint16, const QString &, const QString & = QString());
-	void disconnect();
-	void set_known_hosts(const QStringList &);
-	void set_identify_file(const QString &);
-	void setenv(const QString &, const QString &);
-	void unsetenv(const QString &);
-	void set_reconnect_interval(int);
-	SSHState state();
-	bool is_connected();
-	bool atEnd() const;
-	qint64 bytesAvailable() const;
-	qint64 bytesToWrite() const;
-	bool canReadLine() const;
-	bool isSequential() const;
-	bool waitForBytesWritten(int msecs);
-	bool waitForReadyRead(int msecs);
-	void register_ready_read_stderr_slot(QObject *, const char *, Qt::ConnectionType = Qt::AutoConnection);
-	bool can_read_line_from_stderr();
-	qint64 read_line_from_stderr(char *, qint64);
-	QByteArray read_line_from_stderr(qint64 = 0);
+  ExternalSSHClient(QObject * = NULL);
+  ExternalSSHClient(QObject *, const QString &);
+  ~ExternalSSHClient();
+  void set_ssh_program_path(const QString &);
+  void set_extra_args(const QStringList &);
+  bool connect(const QString &, quint16, const QString &,
+               const QString & = QString());
+  void disconnect();
+  void set_known_hosts(const QStringList &);
+  void set_identify_file(const QString &);
+  void setenv(const QString &, const QString &);
+  void unsetenv(const QString &);
+  void set_reconnect_interval(int);
+  SSHState state();
+  bool is_connected();
+  bool atEnd() const;
+  qint64 bytesAvailable() const;
+  qint64 bytesToWrite() const;
+  bool canReadLine() const;
+  bool isSequential() const;
+  bool waitForBytesWritten(int msecs);
+  bool waitForReadyRead(int msecs);
+  void register_ready_read_stderr_slot(QObject *, const char *,
+                                       Qt::ConnectionType = Qt::AutoConnection);
+  bool can_read_line_from_stderr();
+  qint64 read_line_from_stderr(char *, qint64);
+  QByteArray read_line_from_stderr(qint64 = 0);
 
 protected:
-	qint64 readData(char *, qint64);
-	qint64 writeData(const char *, qint64);
+  qint64 readData(char *, qint64);
+  qint64 writeData(const char *, qint64);
 
-/*
-signals:
-	void state_changed(SSHClient::SSHState);
-	void connected();
-	void disconnected(int);
-	void readyRead();
-*/
+  /*
+  signals:
+          void state_changed(SSHClient::SSHState);
+          void connected();
+          void disconnected(int);
+          void readyRead();
+  */
 
 private:
-	SSHState ssh_state;
-	QString ssh_program_path;
-	QStringList ssh_args;
-	QStringList ssh_args_extra;
-	QProcess *ssh_process;
-	QStringList known_hosts;
-	QTemporaryFile *temp_known_hosts_file;
-	QString identify_file;
-	QSet<QString> environment;
-	int reconnect_interval;
+  SSHState ssh_state;
+  QString ssh_program_path;
+  QStringList ssh_args;
+  QStringList ssh_args_extra;
+  QProcess *ssh_process;
+  QStringList known_hosts;
+  QTemporaryFile *temp_known_hosts_file;
+  QString identify_file;
+  QSet<QString> environment;
+  int reconnect_interval;
 
 private slots:
-	void reconnect();
-	void from_process_state_change(QProcess::ProcessState);
-	void from_process_started();
-	void from_process_finished(int);
-	void from_process_ready_read();
+  void reconnect();
+  void from_process_state_change(QProcess::ProcessState);
+  void from_process_started();
+  void from_process_finished(int);
+  void from_process_ready_read();
 };
 
 #endif // EXTERNALSSHCLIENT_H
