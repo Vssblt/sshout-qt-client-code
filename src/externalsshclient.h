@@ -34,8 +34,10 @@ public:
   void disconnect();
   void set_known_hosts(const QStringList &);
   void set_identify_file(const QString &);
+  void set_server_alive_interval(int);
   void setenv(const QString &, const QString &);
   void unsetenv(const QString &);
+  void defaultenv();
   void set_reconnect_interval(int);
   SSHState state();
   bool is_connected();
@@ -74,11 +76,13 @@ private:
   QTemporaryFile *temp_known_hosts_file;
   QString identify_file;
   QSet<QString> environment;
+  int server_alive_interval;
   int reconnect_interval;
 
 private slots:
   void reconnect();
   void from_process_state_change(QProcess::ProcessState);
+  void from_process_error(QProcess::ProcessError);
   void from_process_started();
   void from_process_finished(int);
   void from_process_ready_read();

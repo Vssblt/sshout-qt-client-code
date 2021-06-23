@@ -166,7 +166,7 @@ void SettingsDialog::use_internal_ssh_library_checked(bool t) {
   ui->button_remove_env_item->setEnabled(!t);
   ui->checkBox_use_separete_known_hosts->setEnabled(!t);
   ui->checkBox_use_separete_known_hosts->setChecked(
-      t ?: config->value("UseSeparateKnownHosts", false).toBool());
+      t ? 1 : config->value("UseSeparateKnownHosts", false).toBool());
 }
 
 void SettingsDialog::add_environment_variable(const QString &name,

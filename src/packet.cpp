@@ -16,6 +16,7 @@
 #include "sshout/api.h"
 #include <QtCore/QByteArray>
 #include <QtCore/QDataStream>
+#include <QtCore/QIODevice>
 
 // Need to rewrite in a class
 
@@ -73,8 +74,8 @@ SSHOUTGetPacketState sshout_get_packet(QIODevice *d, QByteArray *out_buffer) {
   }
   while (ss < length) {
 #endif
-    qDebug("length = %u", (unsigned int)length);
-    qDebug("bytes available: %lld", (long long int)d->bytesAvailable());
+    // qDebug("length = %u", (unsigned int)length);
+    // qDebug("bytes available: %lld", (long long int)d->bytesAvailable());
 #if 0
 		const QByteArray &chunk = d->read(length);
 		if(chunk.isEmpty()) return buffer;

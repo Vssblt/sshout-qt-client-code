@@ -1,5 +1,5 @@
 /* Secure Shout Host Oriented Unified Talk
- * Copyright 2015-2018 Rivoreo
+ * Copyright 2015-2020 Rivoreo
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,7 @@
 #include "packet.h"
 #include "settingsdialog.h"
 #include "sshout/api.h"
+#include "systemtray.h"
 #include <QtCore/QBuffer>
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QDataStream>
@@ -54,6 +55,7 @@
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollBar>
+#include <QtWidgets/QTextEdit>
 #include <QtWidgets/QTreeWidget>
 #endif
 //#include <QtGui/QRubberBand>
@@ -69,62 +71,53 @@ MainWindow::MainWindow(QWidget *parent, QSettings *config, const QString &host,
     : QMainWindow(parent), ui(new Ui::MainWindow) {
   ready = false;
   ui->setupUi(this);
+  QFont font = ui->checkBox_private_message->font();
+  int point_size = font.pointSize();
+  if (point_size > 6) {
+    font.setPointSize(point_size - 1);
+    ui->checkBox_private_message->setFont(font);
+  }
   this->config = config;
   // setMouseTracking(true);
 #ifdef HAVE_OPENSSH_LIBRARY
   use_internal_ssh_library =
       config->value("UseInternalSSHLibrary", false).toBool();
-  if (use_internal_ssh_library)
+  if (use_internal_ssh_library) {
     ssh_client = new InternalSSHClient(this);
-  else
+  } else
 #endif
+  {
     ssh_client = new ExternalSSHClient(
         this,
         config->value("SSHProgramPath", DEFAULT_SSH_PROGRAM_PATH).toString());
+  }
 #ifndef HAVE_OPENSSH_LIBRARY
   use_internal_ssh_library = false;
 #endif
-  ssh_client->set_identify_file(identify_file);
+  if (identify_file != "")
+    ssh_client->set_identify_file(identify_file);
   this->host = host;
   this->port = port;
   int at_i = host.indexOf('@');
   if (at_i != -1)
     this->host.remove(0, at_i + 1);
   ssh_user = DEFAULT_SSH_USER_NAME;
+  data_stream = NULL;
+  message_log = NULL;
+  timer = NULL;
+  if (!apply_ssh_config()) {
+    change_server();
+    QMetaObject::invokeMethod(this, "close", Qt::QueuedConnection);
+    return;
+  }
   connect(ssh_client, SIGNAL(state_changed(SSHClient::SSHState)),
           SLOT(ssh_state_change(SSHClient::SSHState)));
   connect(ssh_client, SIGNAL(readyRead()), SLOT(read_ssh()));
-  if (use_internal_ssh_library ||
-      config->value("UseSeparateKnownHosts", false).toBool()) {
-    QStringList known_hosts = config->value("KnownHosts").toStringList();
-    known_hosts.removeAll(QString());
-    if (known_hosts.isEmpty()) {
-      QMessageBox::critical(this, tr("Configuration Error"),
-                            use_internal_ssh_library
-                                ? tr("Configured to use internal SSH library; "
-                                     "but known host list is empty")
-                                : tr("Configured to use separate known host "
-                                     "list; but that list is empty."));
-      change_server();
-      QMetaObject::invokeMethod(this, "close", Qt::QueuedConnection);
-      return;
-    }
-    known_hosts.removeDuplicates();
-    ssh_client->set_known_hosts(known_hosts);
-  }
+  connect(ssh_client, SIGNAL(error(SSHClient::SSHError)), SLOT(ssh_error()));
   if (!use_internal_ssh_library) {
     ExternalSSHClient *extern_ssh_client = (ExternalSSHClient *)ssh_client;
     extern_ssh_client->register_ready_read_stderr_slot(this,
                                                        SLOT(read_ssh_stderr()));
-    QString args = config->value("SSHArgs").toString();
-    if (!args.isEmpty())
-      extern_ssh_client->set_extra_args(args.split(' '));
-    config->beginGroup("SSHEnvironment");
-    QStringList key_list = config->allKeys();
-    foreach (const QString &key, key_list) {
-      extern_ssh_client->setenv(key, config->value(key).toString());
-    }
-    config->endGroup();
   }
   send_message_on_enter = config->value("UseEnterToSendMessage", true).toBool();
   ui->action_press_enter_to_send_message->setChecked(send_message_on_enter);
@@ -155,6 +148,11 @@ MainWindow::MainWindow(QWidget *parent, QSettings *config, const QString &host,
   timer = new QTimer(this);
   timer->setInterval(60000);
   connect(timer, SIGNAL(timeout()), SLOT(send_request_online_users()));
+  handshake_timer = new QTimer(this);
+  handshake_timer->setSingleShot(true);
+  handshake_timer->setInterval(40000);
+  connect(handshake_timer, SIGNAL(timeout()),
+          SLOT(handshake_timeout_disconnect()));
   log_dir = new QDir(QString("%1/logs/%2").arg(config_dir()).arg(this->host));
   if (!log_dir->mkpath("images")) {
     qWarning("Cannot create image cache directory");
@@ -177,10 +175,10 @@ MainWindow::MainWindow(QWidget *parent, QSettings *config, const QString &host,
   unread_message_count = 0;
   connect(ui->action_about_qt, SIGNAL(triggered()), QApplication::instance(),
           SLOT(aboutQt()));
+  apply_chat_area_config();
   ready = true;
   setAcceptDrops(true);
   update_window_title();
-  apply_chat_area_config();
 }
 
 MainWindow::~MainWindow() {
@@ -213,9 +211,10 @@ void MainWindow::keyPressEvent(QKeyEvent *e) {
     case Qt::Key_Return:
       show_tip = false;
       if (send_message_on_enter) {
-        if (control_key_pressed)
+        if (control_key_pressed) {
           ui->textEdit_message_to_send->insertPlainText("\n");
-        else
+          ui->textEdit_message_to_send->moveCursor(QTextCursor::NoMove);
+        } else
           send_message();
         ignore_key_event = true;
       } else if (control_key_pressed) {
@@ -277,12 +276,25 @@ void MainWindow::save_ui_layout() {
 }
 
 void MainWindow::closeEvent(QCloseEvent *e) {
+#ifdef Q_OS_OSX
+  if (!e->spontaneous() || !isVisible()) {
+    return;
+  }
+#endif
+  hide();
+  e->ignore();
+  return;
+}
+
+void MainWindow::exit() {
   need_reconnect = false;
   ssh_client->disconnect();
-  message_log->close();
+  if (message_log)
+    message_log->close();
   if (ready)
     save_ui_layout();
-  e->accept();
+  this->close_ = true;
+  this->close();
 }
 
 void MainWindow::connect_ssh() {
@@ -290,22 +302,6 @@ void MainWindow::connect_ssh() {
     ui->statusbar->showMessage(tr("Cannot connect"), 10000);
   }
 }
-
-/*
-QString MainWindow::create_random_hex_string(int len) {
-        //char buffer[len * 2];
-        QByteArray buffer;
-        //buffer.resize(len * 2);
-        //int i = 0;
-        //while(i < len) {
-        while(len-- > 0) {
-                //QString::number(qrand() & 0xff, 0x10);
-                char n = qrand() & 0xff;
-                buffer.append(QByteArray(&n, 1).toHex());
-        }
-        return QString::fromLatin1(buffer);
-}
-*/
 
 void MainWindow::print_image(const QByteArray &data,
                              QByteArray &file_name_buffer) {
@@ -337,6 +333,7 @@ void MainWindow::print_image(const QByteArray &data,
                                          .arg(image_file.errorString()));
       return;
     }
+    image_file.setPermissions(QFile::ReadUser | QFile::WriteUser);
     if (image_file.write(data) < data.length()) {
       ui->chat_area->appendPlainText(
           tr("[File %1 short write]").arg(image_file_name));
@@ -363,16 +360,33 @@ void MainWindow::print_image(const QByteArray &data,
   ui->chat_area->setTextCursor(cursor);
 }
 
+void MainWindow::print_tag(const QString &time, const QString &from,
+                           const QString &to) {
+  QString from_color = (!my_user_name.isEmpty() && from == my_user_name)
+                           ? "LimeGreen"
+                           : "RoyalBlue";
+  if (to.isEmpty() || to == "GLOBAL") {
+    ui->chat_area->insertHtml(
+        QString("<font color=\"%1\">%2</font>  ").arg(from_color).arg(from));
+  } else {
+    QString to_color = (!my_user_name.isEmpty() && to == my_user_name)
+                           ? "LimeGreen"
+                           : "RoyalBlue";
+    ui->chat_area->insertHtml(
+        tr("<font color=\"%1\">%2</font> to <font color=\"%3\">%4</font>  ")
+            .arg(from_color)
+            .arg(from)
+            .arg(to_color)
+            .arg(to));
+  }
+  ui->chat_area->insertPlainText(time);
+  ui->chat_area->insertPlainText("\n");
+}
+
 void MainWindow::print_message(const QDateTime &dt, const QString &msg_from,
                                const QString &msg_to, quint8 msg_type,
                                const QByteArray &message) {
   QTime t = dt.time();
-  QString tag = (msg_to.isEmpty() || msg_to == QString("GLOBAL"))
-                    ? QString("%1 %2").arg(msg_from).arg(t.toString("H:mm:ss"))
-                    : tr("%1 to %2 %3")
-                          .arg(msg_from)
-                          .arg(msg_to)
-                          .arg(t.toString("H:mm:ss"));
   QScrollBar *chat_area_scroll_bar = ui->chat_area->verticalScrollBar();
   int current_scroll = chat_area_scroll_bar->value();
   bool should_scroll = current_scroll >= chat_area_scroll_bar->maximum();
@@ -380,17 +394,16 @@ void MainWindow::print_message(const QDateTime &dt, const QString &msg_from,
   cursor.movePosition(QTextCursor::End);
   ui->chat_area->setTextCursor(cursor);
   ui->chat_area->insertPlainText("\n");
+  print_tag(t.toString("H:mm:ss"), msg_from, msg_to);
   QByteArray image_file_name;
   switch (msg_type) {
   case SSHOUT_API_MESSAGE_TYPE_PLAIN:
-    ui->chat_area->insertPlainText(tag + "\n" + QString::fromUtf8(message));
+    ui->chat_area->insertPlainText(QString::fromUtf8(message));
     break;
   case SSHOUT_API_MESSAGE_TYPE_RICH:
-    ui->chat_area->insertPlainText(tag + "\n");
     ui->chat_area->insertHtml(QString::fromUtf8(message));
     break;
   case SSHOUT_API_MESSAGE_TYPE_IMAGE:
-    ui->chat_area->insertPlainText(tag + "\n");
     print_image(message, image_file_name);
     break;
   }
@@ -427,6 +440,15 @@ void MainWindow::send_hello() {
   *data_stream << version;
 }
 
+QString MainWindow::get_target_user() {
+  if (!ui->checkBox_private_message->isChecked())
+    return QString("GLOBAL");
+  QListWidgetItem *item = ui->listWidget_online_users->currentItem();
+  if (!item)
+    return QString("GLOBAL");
+  return item->text();
+}
+
 void MainWindow::send_message(const QString &to_user, quint8 message_type,
                               const QByteArray &message) {
   if (!ssh_client->is_connected()) {
@@ -454,18 +476,16 @@ void MainWindow::send_message(const QString &to_user, quint8 message_type,
 
 void MainWindow::send_message() {
   qDebug("slot: MainWindow::send_message()");
+
+  if (ui->textEdit_message_to_send->document()->isEmpty())
+    return;
   bool use_html = ui->action_use_html_for_sending_messages->isChecked();
   QString message = use_html ? ui->textEdit_message_to_send->toHtml()
                              : ui->textEdit_message_to_send->toPlainText();
-  if (message.isEmpty())
-    return;
-
   QByteArray message_bytes = message.toUtf8();
 
   ui->statusbar->showMessage(tr("Sending message"), 1000);
-  // TODO: get user name from current selection of user list
-  // QString ui->listWidget_online_users->currentItem()
-  send_message("GLOBAL",
+  send_message(get_target_user(),
                use_html ? SSHOUT_API_MESSAGE_TYPE_RICH
                         : SSHOUT_API_MESSAGE_TYPE_PLAIN,
                message_bytes);
@@ -502,7 +522,7 @@ void MainWindow::send_image(const QImage &image) {
     return;
   }
   buffer.close();
-  send_message("GLOBAL", SSHOUT_API_MESSAGE_TYPE_IMAGE, data);
+  send_message(get_target_user(), SSHOUT_API_MESSAGE_TYPE_IMAGE, data);
 }
 
 void MainWindow::add_user_item(const QString &user_name,
@@ -530,6 +550,9 @@ void MainWindow::remove_offline_user_items(const QSet<QString> &keep_set) {
   foreach (QListWidgetItem *i, items) {
     if (keep_set.contains(i->text()))
       continue;
+    if (ui->checkBox_private_message->isChecked() &&
+        ui->listWidget_online_users->currentItem() == i)
+      ui->checkBox_private_message->setChecked(false);
     delete (QList<UserIdAndHostName> *)i->data((int)Qt::UserRole)
         .value<void *>();
     delete i;
@@ -561,7 +584,7 @@ void MainWindow::send_request_online_users() {
 
 void MainWindow::update_user_state(const QString &user, quint8 state) {
   ui->chat_area->appendPlainText(
-      tr("%1 is %2\n").arg(user).arg(state ? tr("joined") : tr("left")));
+      tr("%1 has %2\n").arg(user).arg(state ? tr("joined") : tr("left")));
   if (state) {
     send_request_online_users();
     timer->start();
@@ -572,6 +595,10 @@ void MainWindow::update_user_state(const QString &user, quint8 state) {
     if (items.isEmpty())
       return;
     Q_ASSERT(items.count() == 1);
+    if (ui->checkBox_private_message->isChecked() &&
+        ui->listWidget_online_users->currentItem() == items[0]) {
+      ui->checkBox_private_message->setChecked(false);
+    }
     delete (QList<UserIdAndHostName> *)items[0]
         ->data((int)Qt::UserRole)
         .value<void *>();
@@ -586,10 +613,45 @@ void MainWindow::print_error(quint32 error_code, const QString &error_message) {
       tr("Error from server: %1").arg(error_message) + "\n");
 }
 
+bool MainWindow::apply_ssh_config() {
+  // ServerAliveInterval must be less than 60 to make sense, due to a timer for
+  // send_request_online_users
+  ssh_client->set_server_alive_interval(20); // TODO: make it configurable
+  if (use_internal_ssh_library ||
+      config->value("UseSeparateKnownHosts", false).toBool()) {
+    QStringList known_hosts = config->value("KnownHosts").toStringList();
+    known_hosts.removeAll(QString());
+    if (known_hosts.isEmpty()) {
+      QMessageBox::critical(this, tr("Configuration Error"),
+                            use_internal_ssh_library
+                                ? tr("Configured to use internal SSH library; "
+                                     "but known host list is empty")
+                                : tr("Configured to use separate known host "
+                                     "list; but that list is empty."));
+      return false;
+    }
+    known_hosts.removeDuplicates();
+    ssh_client->set_known_hosts(known_hosts);
+  } else {
+    ssh_client->set_known_hosts(QStringList());
+  }
+  if (!use_internal_ssh_library) {
+    ExternalSSHClient *extern_ssh_client = (ExternalSSHClient *)ssh_client;
+    QString args = config->value("SSHArgs").toString();
+    extern_ssh_client->set_extra_args(args.isEmpty() ? QStringList()
+                                                     : args.split(' '));
+    config->beginGroup("SSHEnvironment");
+    extern_ssh_client->defaultenv();
+    QStringList key_list = config->allKeys();
+    foreach (const QString &key, key_list) {
+      extern_ssh_client->setenv(key, config->value(key).toString());
+    }
+    config->endGroup();
+  }
+  return true;
+}
+
 void MainWindow::apply_chat_area_config() {
-  // qDebug("function: MainWindow::apply_chat_area_config()");
-  // qDebug() << ui->chat_area->currentCharFormat().font() <<
-  // ui->chat_area->currentCharFormat().fontPointSize();
   QVariant font_from_config = config->value("Text/DefaultFontFamily");
   QFont font = font_from_config.isNull() ? ui->chat_area->font()
                                          : font_from_config.value<QFont>();
@@ -606,6 +668,7 @@ void MainWindow::ssh_state_change(SSHClient::SSHState state) {
   case SSHClient::DISCONNECTED:
     // ui->statusbar->showMessage(tr("Disconnected"));
     timer->stop();
+    handshake_timer->stop();
     if (need_reconnect)
       QTimer::singleShot(10000, this, SLOT(connect_ssh()));
     break;
@@ -620,6 +683,7 @@ void MainWindow::ssh_state_change(SSHClient::SSHState state) {
   case SSHClient::AUTHENTICATED:
     ui->statusbar->showMessage(tr("Connected"));
     send_hello();
+    handshake_timer->start();
     break;
   }
 }
@@ -659,7 +723,7 @@ void MainWindow::read_ssh() {
     stream >> packet_type;
     switch (packet_type) {
     case SSHOUT_API_PASS:
-      qDebug("SSHOUT_API_PASS received");
+      // qDebug("SSHOUT_API_PASS received");
       if (data.mid(1, 6) != QString("SSHOUT")) {
         qWarning("Magic mismatch");
         ui->chat_area->appendPlainText(tr("Magic mismatch"));
@@ -667,6 +731,7 @@ void MainWindow::read_ssh() {
         ssh_client->disconnect();
         return;
       }
+      handshake_timer->stop();
       stream.skipRawData(6);
       quint16 version;
       stream >> version;
@@ -698,7 +763,7 @@ void MainWindow::read_ssh() {
       timer->start();
       break;
     case SSHOUT_API_ONLINE_USERS_INFO:
-      qDebug("SSHOUT_API_ONLINE_USERS_INFO received");
+      // qDebug("SSHOUT_API_ONLINE_USERS_INFO received");
       {
         quint16 my_id;
         stream >> my_id;
@@ -727,7 +792,7 @@ void MainWindow::read_ssh() {
       }
       break;
     case SSHOUT_API_RECEIVE_MESSAGE:
-      qDebug("SSHOUT_API_RECEIVE_MESSAGE received");
+      // qDebug("SSHOUT_API_RECEIVE_MESSAGE received");
       {
         quint64 time;
         stream >> time;
@@ -758,8 +823,8 @@ void MainWindow::read_ssh() {
         stream >> msg_type;
         quint32 msg_len;
         stream >> msg_len;
-        qDebug() << data.length() << time << from_user_len << to_user_len
-                 << msg_type;
+        // qDebug() << data.length() << time << from_user_len << to_user_len <<
+        // msg_type;
         if (1 + 8 + 1 + (int)from_user_len + 1 + (int)to_user_len + 1 + 4 +
                 (int)msg_len >
             data.length()) {
@@ -769,7 +834,7 @@ void MainWindow::read_ssh() {
           // ssh_client->disconnect();
           return;
         }
-        qDebug() << msg_len;
+        // qDebug() << msg_len;
         print_message(
             QDateTime::fromTime_t(time),
             QString::fromUtf8(from_user, from_user_len),
@@ -779,9 +844,9 @@ void MainWindow::read_ssh() {
       }
       break;
     case SSHOUT_API_USER_STATE_CHANGE:
-      qDebug("SSHOUT_API_USER_STATE_CHANGE received");
+      // qDebug("SSHOUT_API_USER_STATE_CHANGE received");
       {
-        qDebug("length: %d", data.length());
+        // qDebug("length: %d", data.length());
         quint8 state;
         stream >> state;
         quint8 user_name_len;
@@ -797,7 +862,7 @@ void MainWindow::read_ssh() {
       }
       break;
     case SSHOUT_API_ERROR:
-      qDebug("SSHOUT_API_ERROR received");
+      // qDebug("SSHOUT_API_ERROR received");
       {
         quint32 error_code;
         stream >> error_code;
@@ -814,7 +879,7 @@ void MainWindow::read_ssh() {
       }
       break;
     case SSHOUT_API_MOTD:
-      qDebug("SSHOUT_API_MOTD received");
+      // qDebug("SSHOUT_API_MOTD received");
       quint32 length;
       stream >> length;
       if (length > (unsigned int)data.length() - 1 - 4) {
@@ -862,14 +927,20 @@ void MainWindow::settings() {
   SettingsDialog d(this, config);
   if (!d.exec())
     return;
+  if (!apply_ssh_config()) {
+    QMessageBox::warning(this, tr("Configuration Error"),
+                         tr("You won't be able to connect to SSH server again, "
+                            "until SSH configuration was corrected."));
+  }
   apply_chat_area_config();
 }
 
 void MainWindow::change_server() {
   ConnectionWindow *w = new ConnectionWindow(NULL, config);
   w->setAttribute(Qt::WA_DeleteOnClose);
+  w->setSystemTray(SystemTray::instance());
   w->show();
-  close();
+  this->exit();
 }
 
 void MainWindow::set_use_html(bool v) {
@@ -901,7 +972,7 @@ void MainWindow::open_project_page() {
 void MainWindow::show_about() {
   QMessageBox d(this);
   d.setWindowTitle(tr("About"));
-  d.setText("<h3>Secure Shout Host Oriented Unified Talk</h3>Copyright 2018 "
+  d.setText("<h3>Secure Shout Host Oriented Unified Talk</h3>Copyright 2020 "
             "Rivoreo<br/><br/>" +
             tr("This program is free software; you are free to change and "
                "redistribute it; see the source for copying conditions.") +
@@ -982,10 +1053,9 @@ void MainWindow::reset_unread_message_count() {
 
 void MainWindow::reset_unread_message_count_from_chat_area_vertical_scroll_bar(
     int scroll_bar_value) {
-  qDebug("slot: "
-         "MainWindow::reset_unread_message_count_from_chat_area_vertical_"
-         "scroll_bar(%d)",
-         scroll_bar_value);
+  // qDebug("slot:
+  // MainWindow::reset_unread_message_count_from_chat_area_vertical_scroll_bar(%d)",
+  // scroll_bar_value);
   if (scroll_bar_value < ui->chat_area->verticalScrollBar()->maximum())
     return;
   if (!isActiveWindow())
@@ -1093,4 +1163,42 @@ void MainWindow::send_image_from_clipboard() {
     return;
   }
   send_image(image);
+}
+
+void MainWindow::select_user(const QString &name) {
+  ui->checkBox_private_message->setEnabled(true);
+  if (!ui->checkBox_private_message->isChecked())
+    return;
+  ui->label_message_to->setText(tr("Message to <b>%1</b>:").arg(name));
+}
+
+void MainWindow::set_send_private_message(bool v) {
+  QListWidgetItem *item;
+  if (v && (item = ui->listWidget_online_users->currentItem())) {
+    ui->label_message_to->setText(
+        tr("Message to <b>%1</b>:").arg(item->text()));
+  } else {
+    ui->label_message_to->setText(tr("Broadcast Message:"));
+  }
+}
+
+void MainWindow::ssh_error() {
+  ui->statusbar->showMessage(tr("An error occurred in SSH client"), 10000);
+}
+
+void MainWindow::handshake_timeout_disconnect() {
+  ui->statusbar->showMessage(tr("API handshake timed out"), 10000);
+  ssh_client->disconnect();
+}
+
+void MainWindow::showOrHide() {
+  if (this->isHidden())
+    this->show();
+  else
+    this->hide();
+}
+
+void MainWindow::setSystemTray(SystemTray *tray) {
+  connect(tray->exitAction(), SIGNAL(triggered()), this, SLOT(exit()));
+  connect(tray->showAction(), SIGNAL(triggered()), this, SLOT(showOrHide()));
 }

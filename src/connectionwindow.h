@@ -28,12 +28,15 @@ namespace Ui {
 class ConnectionWindow;
 }
 
+class SystemTray;
+
 class ConnectionWindow : public QDialog {
   Q_OBJECT
 
 public:
   explicit ConnectionWindow(QWidget *, QSettings *);
   ~ConnectionWindow();
+  void setSystemTray(SystemTray *tray);
 
 private:
   Ui::ConnectionWindow *ui;
@@ -45,6 +48,7 @@ private:
 #else
   QList<QVariant> server_list;
 #endif
+  int close_;
 
 protected:
   void closeEvent(QCloseEvent *);
@@ -55,6 +59,8 @@ private slots:
   void start_main_window();
   void remote_host_name_change_event(int);
   void remote_host_name_change_event(QString);
+  void exit();
+  void showOrHide();
 };
 
 #endif // CONNECTIONWINDOW_H

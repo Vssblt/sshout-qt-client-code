@@ -18,7 +18,6 @@ MOC_DIR = $$DESTDIR
 UI_DIR += $$DESTDIR
 RCC_DIR += $$DESTDIR
 
-
 SOURCES += \
     $$SRC/main.cpp\
     $$SRC/connectionwindow.cpp \
@@ -27,6 +26,7 @@ SOURCES += \
     $$SRC/sshclient.cpp \
     $$SRC/externalsshclient.cpp \
     $$SRC/packet.cpp \
+		$$SRC/systemtray.cpp \
     $$SRC/messagelog.cpp
 
 HEADERS  += \
@@ -38,6 +38,7 @@ HEADERS  += \
     $$SRC/externalsshclient.h \
     $$SRC/common.h \
     $$SRC/packet.h \
+		$$SRC/systemtray.h \
     $$SRC/messagelog.h
 
 FORMS    += \
@@ -52,6 +53,6 @@ RESOURCES += \
 
 QMAKE_CXXFLAGS += -Wno-empty-body -Wno-write-strings
 
-TRANSLATIONS = resources/translations/sshout.zh-cn.ts
+TRANSLATIONS = translations/sshout.zh-cn.ts
 
 CODECFORTR = UTF-8

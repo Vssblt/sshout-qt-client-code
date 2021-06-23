@@ -15,10 +15,11 @@
 #include "connectionwindow.h"
 #include "mainwindow.h"
 #include "serverinformation.h"
+#include "systemtray.h"
 #include <getopt.h>
+#include <qicon.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/stat.h>
 #include <time.h>
 #if QT_VERSION < 0x050000
 #include <QtGui/QApplication>
@@ -32,6 +33,12 @@
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QTranslator>
+#ifdef Q_OS_WIN
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#else
+#include <sys/stat.h>
+#endif
 
 #define CONFIG_FILE_NAME "sshout.cfg"
 
@@ -58,8 +65,10 @@ QString config_dir() {
 #ifndef Q_OS_WINCE
   }
   QString in_home = QDir::homePath() + "/.sshout";
-  if (!QFile::exists(in_home))
-    mkdir(in_home.toLocal8Bit().data(), 0750);
+  if (!QFile::exists(in_home)) {
+    QByteArray ba = in_home.toLocal8Bit();
+    mkdir(ba.data(), 0750);
+  }
   return in_home;
 #endif
 }
@@ -87,6 +96,7 @@ bool load_messages_translation(QString language) {
   QStringList translations_directories;
   get_translations_directories(translations_directories);
   QString file_name = QString("sshout.%1.qm").arg(language.toLower());
+  // qDebug() << file_name;
   foreach (const QString &dir, translations_directories) {
     if (translator->load(file_name, dir, "-"))
       return true;
@@ -166,7 +176,7 @@ int main(int argc, char *argv[]) {
     load_messages_translation(language);
   }
   a.installTranslator(translator);
-  qsrand(time(NULL));
+
   if (argc - optind == 1) {
     QString host;
     QString user;
@@ -190,8 +200,13 @@ int main(int argc, char *argv[]) {
   }
   QList<QVariant> server_list = config.value("ServerList").toList();
   QWidget *w;
+
+  /*System tray*/
+  SystemTray::instance()->show();
+
   if (server_list.isEmpty()) {
     w = new ConnectionWindow(NULL, &config);
+    ((ConnectionWindow *)w)->setSystemTray(SystemTray::instance());
   } else if (config.value("AutoConnect", false).toBool()) {
     int index = config.value("LastServerIndex", 0).toUInt();
     if (index < 0 || index >= server_list.count())
@@ -200,12 +215,15 @@ int main(int argc, char *argv[]) {
         server_list[index].value<ServerInformation>();
     MainWindow *mw =
         new MainWindow(NULL, &config, info.host, info.port, info.identify_file);
+    ((MainWindow *)mw)->setSystemTray(SystemTray::instance());
     mw->connect_ssh();
     w = mw;
   } else {
     w = new ConnectionWindow(NULL, &config);
+    ((ConnectionWindow *)w)->setSystemTray(SystemTray::instance());
   }
   w->setAttribute(Qt::WA_DeleteOnClose);
   w->show();
+
   return a.exec();
 }

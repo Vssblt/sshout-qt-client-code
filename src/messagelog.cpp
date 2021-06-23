@@ -1,17 +1,102 @@
+/* Secure Shout Host Oriented Unified Talk
+ * Copyright 2015-2021 Rivoreo
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+
 #include "messagelog.h"
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDateTime>
 #include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QVariant>
 #include <QtSql/QSqlDatabase>
 #include <QtSql/QSqlQuery>
 #include <signal.h>
+#ifdef Q_OS_BSD4
+#include <sys/sysctl.h>
+#if defined Q_OS_DARWIN && MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
+#include <libproc.h>
+#define HAVE_PROC_PIDPATH
+#endif
+#endif
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+#include <QtCore/QDebug>
 
 MessageLog::MessageLog() {
   // database = new QSqlDatabase;
   // QSQLiteDriver *driver = new QSQLiteDriver;
   // database = QSqlDatabase::addDatabase(driver);
   database = QSqlDatabase::addDatabase("QSQLITE");
+}
+
+static bool is_another_instance(int pid) {
+  qDebug() << QCoreApplication::applicationFilePath();
+#ifndef Q_OS_WIN
+  if (pid < 1)
+    return false;
+  if (kill(pid, 0) < 0)
+    return false;
+#else
+  HANDLE handle = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+  // The Windows API design is shit!
+  if (handle != INVALID_HANDLE_VALUE && handle) {
+    CloseHandle(handle);
+    return false;
+  }
+#endif
+
+  QString path;
+#ifdef Q_OS_SOLARIS
+  path = QFile::symLinkTarget(QString("/proc/%1/path/a.out").arg(pid));
+#elif defined Q_OS_BSD4
+#ifdef Q_OS_DARWIN
+#define ki_comm kp_proc.p_comm
+#endif
+  size_t len;
+  int mib[] = {CTL_KERN, KERN_PROC, 0, pid};
+#ifdef KERN_PROC_PATHNAME
+  char buffer[PATH_MAX + 1];
+  len = sizeof buffer;
+  mib[2] = KERN_PROC_PATHNAME;
+  if (sysctl(mib, 4, buffer, &len, NULL, 0) == 0 && len) {
+    path = QString::fromLocal8Bit(buffer, len - 1);
+  }
+#elif defined Q_OS_DARWIN && defined HAVE_PROC_PIDPATH
+  char buffer[PATH_MAX + 1];
+  if (proc_pidpath(pid, buffer, sizeof buffer) == 0) {
+    path = QString::fromLocal8Bit(buffer);
+  }
+#endif
+
+  if (path.isEmpty()) {
+    struct kinfo_proc proc;
+    len = sizeof proc;
+    mib[2] = KERN_PROC_PID;
+    if (sysctl(mib, 4, &proc, &len, NULL, 0) == 0) {
+      path = QString::fromLocal8Bit(proc.ki_comm);
+    }
+  }
+#endif
+  qDebug() << path;
+  if (!path.isEmpty() &&
+      QFileInfo(path).fileName() !=
+          QFileInfo(QCoreApplication::applicationFilePath()).fileName()) {
+    return false;
+  }
+
+  return true;
 }
 
 bool MessageLog::open(const QString &path) {
@@ -33,7 +118,7 @@ bool MessageLog::open(const QString &path) {
     lock_file->close();
     if (!content.isEmpty()) {
       int pid = content.toInt();
-      if (pid && kill(pid, 0) == 0) {
+      if (is_another_instance(pid)) {
         qWarning("MessageLog::open: database file is locked by process %d via "
                  "lock file '%s'",
                  pid, lock_path_ba.data());
@@ -56,8 +141,12 @@ bool MessageLog::open(const QString &path) {
     return false;
   }
   lock_file->close();
+  QFile db_file(path);
+  bool need_chmod = !db_file.exists();
   if (!database.open())
     return false;
+  if (need_chmod)
+    db_file.setPermissions(QFile::ReadUser | QFile::WriteUser);
   QString sql_create_table("CREATE TABLE IF NOT EXISTS messages ("
                            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                            "receive_time DATETIME,"

@@ -1,5 +1,5 @@
 /* Secure Shout Host Oriented Unified Talk
- * Copyright 2015-2018 Rivoreo
+ * Copyright 2015-2020 Rivoreo
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,6 +29,7 @@ class QDir;
 class QTextCursor;
 class QListWidgetItem;
 class MessageLog;
+class SystemTray;
 
 namespace Ui {
 class MainWindow;
@@ -42,10 +43,13 @@ public:
                       const QString &);
   ~MainWindow();
   void set_ssh_user(const QString &);
+  void setSystemTray(SystemTray *tray);
 
 public slots:
   void connect_ssh();
   void show();
+  void exit();
+  void showOrHide();
 
 protected:
   void keyPressEvent(QKeyEvent *);
@@ -72,6 +76,7 @@ private:
   void print_message(const QDateTime &t, const QString &, const QString &,
                      quint8, const QByteArray &);
   void send_hello();
+  QString get_target_user();
   void send_message(const QString &, quint8, const QByteArray &);
   void send_image(const QImage &);
   void save_ui_layout();
@@ -80,9 +85,11 @@ private:
   void update_user_list(const UserInfo *, unsigned int);
   void update_user_state(const QString &, quint8);
   void print_error(quint32, const QString &);
+  bool apply_ssh_config();
   void apply_chat_area_config();
   void update_window_title();
   void reset_unread_message_count();
+  void print_tag(const QString &, const QString &, const QString &);
   Ui::MainWindow *ui;
   bool use_internal_ssh_library;
   SSHClient *ssh_client;
@@ -95,6 +102,7 @@ private:
   bool ignore_key_event;
   bool need_reconnect;
   QTimer *timer;
+  QTimer *handshake_timer;
   // QTemporaryFile *cache_file_allocator;
   QDir *log_dir, *image_cache_dir;
   QString last_message_html;
@@ -106,6 +114,7 @@ private:
   bool ready;
   MessageLog *message_log;
   QString ssh_user;
+  bool close_;
 
 private slots:
   // void on_ssh_state_change(SSHClient::SSHState);
@@ -114,6 +123,7 @@ private slots:
   // void on_ssh_ready_read_stderr();
   void read_ssh();
   void read_ssh_stderr();
+  void ssh_error();
   void set_send_message_on_enter(bool);
   void settings();
   void send_message();
@@ -131,6 +141,9 @@ private slots:
   // void show_session_list_context_menu(const QPoint &);
   void send_image_from_clipboard();
   // void show_about_qt();
+  void select_user(const QString &);
+  void set_send_private_message(bool);
+  void handshake_timeout_disconnect();
 };
 
 #endif // MAINWINDOW_H

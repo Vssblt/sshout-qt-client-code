@@ -16,7 +16,9 @@
 #include "mainwindow.h"
 #include "serverinformation.h"
 #include "settingsdialog.h"
+#include "systemtray.h"
 #include "ui_connectionwindow.h"
+#include <qobject.h>
 #if QT_VERSION < 0x050000
 #include <QtGui/QCompleter>
 #include <QtGui/QFileDialog>
@@ -26,6 +28,8 @@
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QMessageBox>
 #endif
+#include <QAction>
+#include <QCloseEvent>
 #include <QtCore/QDebug>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
@@ -33,7 +37,7 @@
 #include <QtCore/QSettings>
 
 ConnectionWindow::ConnectionWindow(QWidget *parent, QSettings *config)
-    : QDialog(parent), ui(new Ui::ConnectionWindow) {
+    : QDialog(parent), ui(new Ui::ConnectionWindow), close_(0) {
   ui->setupUi(this);
   QCompleter *completer = new QCompleter(this);
   completer->setCompletionMode(QCompleter::PopupCompletion);
@@ -105,12 +109,19 @@ void ConnectionWindow::change_settings() {
 }
 
 void ConnectionWindow::closeEvent(QCloseEvent *e) {
-  qDebug("function: ConnectionWindow::closeEvent(%p)", e);
+  if (!this->close_) {
+    qDebug("function: ConnectionWindow::closeEvent(%p)", e);
+    this->hide();
+    e->ignore();
+  }
 }
 
 void ConnectionWindow::start_main_window() {
   qDebug("slot: ConnectionWindow::start_main_window()");
-  const QString &host = ui->remote_host_comboBox->currentText();
+  QString comm = ui->remote_host_comboBox->currentText();
+  QUrl url("ssh://" + comm);
+  QString host = url.host();
+  QString user = url.userName();
   if (host.isEmpty()) {
     QMessageBox::critical(this, tr("Check Server Information"),
                           tr("Host name cannot be empty"));
@@ -131,16 +142,11 @@ void ConnectionWindow::start_main_window() {
     }
   }
   const QString &identify_file = ui->identify_file_lineEdit->text();
-  if (identify_file.isEmpty()) {
-    QMessageBox::critical(this, tr("Check Server Information"),
-                          tr("Identify file path cannot be empty"));
-    return;
-  }
 
   bool found = false;
   foreach (const QVariant &i, server_list) {
     ServerInformation info = i.value<ServerInformation>();
-    if (info.host == host) {
+    if (info.host == comm) {
       if (info.port == port && info.identify_file == identify_file)
         found = 1;
       else
@@ -150,7 +156,7 @@ void ConnectionWindow::start_main_window() {
   }
   if (!found) {
     ServerInformation info;
-    info.host = host;
+    info.host = comm;
     info.port = port;
     info.identify_file = identify_file;
     QVariant v = QVariant::fromValue<ServerInformation>(info);
@@ -161,16 +167,19 @@ void ConnectionWindow::start_main_window() {
   if (index >= 0)
     config->setValue("LastServerIndex", index);
   config->setValue("AutoConnect", ui->checkBox_auto_connect->isChecked());
-  hide();
   MainWindow *w = new MainWindow(NULL, config, host, port, identify_file);
   w->setAttribute(Qt::WA_DeleteOnClose);
+  w->setSystemTray(SystemTray::instance());
+  if (user != "")
+    w->set_ssh_user(user);
   w->connect_ssh();
   w->show();
   accept();
+  this->exit();
 }
 
 void ConnectionWindow::remote_host_name_change_event(int index) {
-  if (index < 0 || index > server_list.count())
+  if (index < 0 || index >= server_list.count())
     return;
   ServerInformation info = server_list[index].value<ServerInformation>();
   if (ui->remote_host_comboBox->currentText() != info.host)
@@ -181,4 +190,21 @@ void ConnectionWindow::remote_host_name_change_event(int index) {
 
 void ConnectionWindow::remote_host_name_change_event(QString host_name) {
   ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!host_name.isEmpty());
+}
+
+void ConnectionWindow::exit() {
+  this->close_ = true;
+  this->close();
+}
+
+void ConnectionWindow::showOrHide() {
+  if (this->isHidden())
+    this->show();
+  else
+    this->hide();
+}
+
+void ConnectionWindow::setSystemTray(SystemTray *tray) {
+  connect(tray->exitAction(), SIGNAL(triggered()), this, SLOT(exit()));
+  connect(tray->showAction(), SIGNAL(triggered()), this, SLOT(showOrHide()));
 }
