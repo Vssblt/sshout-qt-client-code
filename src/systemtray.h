@@ -15,6 +15,9 @@ public:
   const QAction *exitAction();
   const QAction *showAction();
 
+public slots:
+  void exit();
+
 private slots:
   void trayEvent(QSystemTrayIcon::ActivationReason r);
 

@@ -1,12 +1,16 @@
 #include "systemtray.h"
+#include <QApplication>
 #include <QDebug>
 #include <QMenu>
 
 SystemTray::SystemTray(QObject *parent)
     : QObject(parent), tray_menu(new QMenu), tray(new QSystemTrayIcon) {
 
-  tray_menu->addAction(new QAction("Show/Hide", this));
-  tray_menu->addAction(new QAction("Exit", this));
+  QAction *show = new QAction("Show/Hide", this);
+  QAction *exit = new QAction("Exit", this);
+
+  tray_menu->addAction(show);
+  tray_menu->addAction(exit);
 
   tray->setIcon(QIcon(":/sshout.png"));
   tray->setVisible(true);
@@ -14,6 +18,7 @@ SystemTray::SystemTray(QObject *parent)
 
   connect(this->tray, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
           this, SLOT(trayEvent(QSystemTrayIcon::ActivationReason)));
+  connect(exit, SIGNAL(triggered()), this, SLOT(exit()));
 }
 
 SystemTray::~SystemTray() { delete this->tray_menu; }
@@ -55,3 +60,5 @@ void SystemTray::trayEvent(QSystemTrayIcon::ActivationReason r) {
 }
 
 void SystemTray::show() { this->tray->show(); }
+
+void SystemTray::exit() { QApplication::exit(); }

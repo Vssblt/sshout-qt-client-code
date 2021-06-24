@@ -205,6 +205,5 @@ void ConnectionWindow::showOrHide() {
 }
 
 void ConnectionWindow::setSystemTray(SystemTray *tray) {
-  connect(tray->exitAction(), SIGNAL(triggered()), this, SLOT(exit()));
   connect(tray->showAction(), SIGNAL(triggered()), this, SLOT(showOrHide()));
 }
