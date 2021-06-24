@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QDebug>
 #include <QMenu>
+#include <qmessagebox.h>
 
 SystemTray::SystemTray(QObject *parent)
     : QObject(parent), tray_menu(new QMenu), tray(new QSystemTrayIcon) {
@@ -61,4 +62,10 @@ void SystemTray::trayEvent(QSystemTrayIcon::ActivationReason r) {
 
 void SystemTray::show() { this->tray->show(); }
 
-void SystemTray::exit() { QApplication::exit(); }
+void SystemTray::exit() {
+  int result = QMessageBox::question(nullptr, "Exit",
+                                     "Do you really want to exit the program?",
+                                     QMessageBox::Yes | QMessageBox::No);
+  if (result == QMessageBox::Yes)
+    QApplication::exit();
+}
