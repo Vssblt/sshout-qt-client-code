@@ -127,6 +127,9 @@ MainWindow::MainWindow(QWidget *parent, QSettings *config, const QString &host,
   control_key_pressed = false;
   ignore_key_event = false;
   need_reconnect = true;
+  bool show_server_list = config->value("ShowServerList", true).toBool();
+  ui->dockWidget_server_list->setVisible(show_server_list);
+  ui->action_show_server_list->setChecked(show_server_list);
   bool show_user_list = config->value("ShowUserList", true).toBool();
   ui->dockWidget_online_list->setVisible(show_user_list);
   ui->action_show_online_users->setChecked(show_user_list);
@@ -272,6 +275,16 @@ void MainWindow::save_ui_layout() {
     config->setValue("WindowSize", size());
   if (show_user_list) {
     config->setValue("UserListWindowSize", ui->dockWidget_online_list->size());
+  }
+
+  bool show_server_list = ui->dockWidget_server_list->isVisible();
+  config->setValue("ShowServerList", show_server_list);
+  config->setValue("WindowMaximized", is_maximized);
+  if (!is_maximized)
+    config->setValue("WindowSize", size());
+  if (show_server_list) {
+    config->setValue("ServerListWindowSize",
+                     ui->dockWidget_server_list->size());
   }
 }
 
@@ -1075,7 +1088,6 @@ void MainWindow::changeEvent(QEvent *e) {
 }
 
 void MainWindow::show_sessions_of_user(QListWidgetItem *item_from_list) {
-  // qDebug("slot: MainWindow::show_sessions_of_user(%p)", item_from_list);
   QList<UserIdAndHostName> *sessions =
       (QList<UserIdAndHostName> *)item_from_list->data(Qt::UserRole)
           .value<void *>();
@@ -1084,6 +1096,8 @@ void MainWindow::show_sessions_of_user(QListWidgetItem *item_from_list) {
     return;
   }
   QTreeWidget *tree_widget = new QTreeWidget;
+  tree_widget->setWindowModality(Qt::ApplicationModal);
+  tree_widget->setAttribute(Qt::WA_ShowModal, true);
   tree_widget->setAttribute(Qt::WA_DeleteOnClose);
   tree_widget->setColumnCount(2);
   tree_widget->setHeaderLabels(QStringList() << tr("ID") << tr("Host"));
@@ -1095,21 +1109,15 @@ void MainWindow::show_sessions_of_user(QListWidgetItem *item_from_list) {
     tree_widget->addTopLevelItem(item);
     qDebug("%d", id_and_host_name.host_name.length());
   }
-  // tree_widget->setContextMenuPolicy(Qt::CustomContextMenu);
-  // connect(tree_widget, SIGNAL(customContextMenuRequested(QPoint)),
-  // SLOT(show_session_list_context_menu(QPoint)));
   tree_widget->setWindowTitle(
       tr("Active Sessions of User %1").arg(item_from_list->text()));
   tree_widget->resizeColumnToContents(0);
-  // tree_widget->resizeColumnToContents(1);
-  // int width = tree_widget->columnWidth(0) + tree_widget->columnWidth(1);
   tree_widget->setGeometry(x() + (width() - 240) / 2,
                            y() + (height() - 160) / 2, 240, 160);
   QEventLoop event_loop;
   connect(tree_widget, SIGNAL(destroyed()), &event_loop, SLOT(quit()));
   tree_widget->show();
   event_loop.exec();
-  // qDebug("end of MainWindow::show_sessions_of_user");
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *e) {

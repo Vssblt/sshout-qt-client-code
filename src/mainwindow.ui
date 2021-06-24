@@ -14,7 +14,7 @@
    <string notr="true">SSHOUT</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="icons.qrc">
+   <iconset resource="../resources/icons.qrc">
     <normaloff>:/sshout.png</normaloff>:/sshout.png</iconset>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -38,7 +38,16 @@
        </size>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout">
-       <property name="margin">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
         <number>0</number>
        </property>
        <item>
@@ -62,7 +71,7 @@
      <x>0</x>
      <y>0</y>
      <width>404</width>
-     <height>27</height>
+     <height>23</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_server">
@@ -86,6 +95,7 @@
      <string>&amp;View</string>
     </property>
     <addaction name="action_show_online_users"/>
+    <addaction name="action_show_server_list"/>
    </widget>
    <widget class="QMenu" name="menu_help">
     <property name="title">
@@ -104,7 +114,7 @@
   <widget class="QDockWidget" name="dockWidget_online_list">
    <property name="minimumSize">
     <size>
-     <width>108</width>
+     <width>139</width>
      <height>152</height>
     </size>
    </property>
@@ -157,6 +167,21 @@
    <addaction name="action_send"/>
    <addaction name="action_send_image"/>
    <addaction name="action_send_image_from_clipboard"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_server_list">
+   <property name="windowTitle">
+    <string>Servers</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_2">
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="0" column="0">
+      <widget class="QListWidget" name="serverList"/>
+     </item>
+    </layout>
+   </widget>
   </widget>
   <action name="action_press_enter_to_send_message">
    <property name="checkable">
@@ -247,9 +272,17 @@
     <string>About &amp;Qt...</string>
    </property>
   </action>
+  <action name="action_show_server_list">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Show Server list</string>
+   </property>
+  </action>
  </widget>
  <resources>
-  <include location="icons.qrc"/>
+  <include location="../resources/icons.qrc"/>
  </resources>
  <connections>
   <connection>
@@ -505,6 +538,22 @@
     <hint type="destinationlabel">
      <x>201</x>
      <y>191</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>action_show_server_list</sender>
+   <signal>triggered(bool)</signal>
+   <receiver>dockWidget_server_list</receiver>
+   <slot>setVisible(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>67</x>
+     <y>205</y>
     </hint>
    </hints>
   </connection>
